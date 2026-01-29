@@ -75,12 +75,12 @@ local function sync()
     for _, item in ipairs(backpack:GetChildren()) do
         if item:IsA("Tool") then table.insert(invItems, item) end
     end
-    local character = player.Character
-    if character then
-        for _, item in ipairs(character:GetChildren()) do
+    if player.Character then
+        for _, item in ipairs(player.Character:GetChildren()) do
             if item:IsA("Tool") then table.insert(invItems, item) end
         end
     end
+    local character = player.Character
     local activeTool = character and character:FindFirstChildOfClass("Tool")
     local inventoryData = {items = invItems, contents = invItems, hand = activeTool}
     store:dispatch({type = "InventorySetInventory", inventory = inventoryData})
@@ -88,24 +88,28 @@ local function sync()
     invUpdateEvent:Fire()
 end
 
+local function isToolBroken(tool)
+    if not tool:IsA("Tool") then return true end
+    if not tool:FindFirstChild("Handle") then return true end
+    local amtCount = 0
+    local dispCount = 0
+    for _, child in ipairs(tool:GetChildren()) do
+        if child.Name == "Amount" then amtCount = amtCount + 1 end
+        if child.Name == "DisplayName" then dispCount = dispCount + 1 end
+    end
+    if amtCount ~= 1 then return true end
+    if dispCount > 1 then return true end
+    return false
+end
+
 local function cleanContainer(container)
     for _, item in ipairs(container:GetChildren()) do
         if item:IsA("Tool") then
-            local shouldDestroy = false
             if not fuckEverything then
-                if currentIgnored[item.Name] then
-                    shouldDestroy = true
-                else
-                    local amtCount = 0
-                    local dispCount = 0
-                    for _, child in ipairs(item:GetChildren()) do
-                        if child.Name == "Amount" then amtCount = amtCount + 1 end
-                        if child.Name == "DisplayName" then dispCount = dispCount + 1 end
-                    end
-                    if amtCount > 1 or dispCount > 1 then shouldDestroy = true end
+                if currentIgnored[item.Name] or isToolBroken(item) then
+                    item:Destroy()
                 end
             end
-            if shouldDestroy then item:Destroy() end
         end
     end
 end
@@ -118,22 +122,13 @@ local validTools = {}
 local processedNames = {}
 for _, tool in ipairs(toolsStorage:GetChildren()) do
     if tool:IsA("Tool") and not processedNames[tool.Name] then
-        local isClean = true
+        local valid = true
         if not fuckEverything then
-            if currentIgnored[tool.Name] then
-                isClean = false
-            else
-                local amtCount = 0
-                local dispCount = 0
-                for _, child in ipairs(tool:GetChildren()) do
-                    if child.Name == "Amount" then amtCount = amtCount + 1 end
-                    if child.Name == "DisplayName" then dispCount = dispCount + 1 end
-                end
-                if amtCount > 1 or dispCount > 1 then isClean = false end
+            if currentIgnored[tool.Name] or isToolBroken(tool) then
+                valid = false
             end
         end
-
-        if isClean then
+        if valid then
             table.insert(validTools, tool)
             processedNames[tool.Name] = true
         end
@@ -171,19 +166,20 @@ for _, tool in ipairs(validTools) do
     else
         local newItem = tool:Clone()
         local amtObj = newItem:FindFirstChild("Amount")
-        if amtObj then amtObj.Value = targetVal end
-        newItem.Parent = backpack
-        store:dispatch({type = "AddItemAddedNotification", toolName = tool.Name, amount = targetVal})
-        sync()
-        
-        if not instantGive then
-            task.wait(0.02)
+        if amtObj then
+            amtObj.Value = targetVal
+            newItem.Parent = backpack
+            store:dispatch({type = "AddItemAddedNotification", toolName = tool.Name, amount = targetVal})
+            sync()
+            if not instantGive then task.wait(0.01) end
+        else
+            newItem:Destroy()
         end
     end
 end
 
 if label then
     label.Text = "Finished!"
-    task.delay(5, function() if gui then gui:Destroy() end end)
+    task.delay(3, function() if gui then gui:Destroy() end end)
 end
 sync()
